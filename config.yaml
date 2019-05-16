@@ -1,0 +1,10 @@
+samples:
+ ERR188044_chrX: 
+  - chrX_data/samples/ERR188044_chrX_1.fastq.gz
+  - chrX_data/samples/ERR188044_chrX_2.fastq.gz
+ ERR188104_chrX: 
+  - chrX_data/samples/ERR188104_chrX_1.fastq.gz
+  - chrX_data/samples/ERR188104_chrX_2.fastq.gz
+ ERR188234_chrX: 
+  - chrX_data/samples/ERR188234_chrX_1.fastq.gz
+  - chrX_data/samples/ERR188234_chrX_2.fastq.gz
