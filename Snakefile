@@ -24,9 +24,11 @@ rule hisat2:
 	params:                             # idx is required, extra is optional
 		idx="chrX_data/indexes/chrX_tran",
 		extra="--dta --new-summary" # --dta improves de novo assembly with Stringtie, --new-summary required for multiqc of hisat statistics
-    	# does not work! threads: 8                         
-	wrapper:
-		"0.34.0/bio/hisat2"
+    	# threads: 1 # although 1 is chosen, still syntax error for this line, why?                        
+	conda:
+		"envs/hisat2.yaml"
+	script:
+		"scripts/hisat2_wrapper0.34.0.py"
 
 
 # Running samtool sort wrapper: sorts BAM files
@@ -49,10 +51,12 @@ rule stringtie_initial:
 		anno="chrX_data/genes/chrX.gtf"
 	output: 
 		"sample_gtf/{sample}.gtf"
-	threads: 8
+	log:
+		"logs/stringtie/{sample}.log"
+	threads: 8 
 	shell: 
 		# -l adds a label to assembled transcripts. Is it necessary? 
-		"stringtie -p {threads} -G {input.anno} -o {output} {input.sbam}"
+		"stringtie -v -p {threads} -G {input.anno} -o {output} {input.sbam} 2> {log}"
 
 
 # Merge assembled transcripts from all samples. This produces a single, consistent set of transcripts and should overcome low coverage (leading to fragmented transcripts in some samples.
@@ -62,10 +66,12 @@ rule stringtie_merge:
 		anno="chrX_data/genes/chrX.gtf"
 	output:
 		"stringtie_merged.gtf"
+	log:
+		"logs/strintie_merge.log"
 	threads:
 		""
 	shell:
-		"stringtie --merge -p {threads} -G {input.anno} -o {output} {input.gtf}"
+		"stringtie -v --merge -p {threads} -G {input.anno} -o {output} {input.gtf} 2> {log}"
 
 
 # Comparison of reference annotation with all transcripts assembled by stringtie --merge. Thereby usefull class codes are assigned describing the relation betwenn reference transcripts and assembled transcripts.
@@ -91,7 +97,23 @@ rule stringtie_ballgown:
 	shell: "stringtie -e -B -p {threads} -G {input.anno} -o {output} {input.sbam}"
 
 
-## quality control
+# generation of gene and transcript count matrices from stringtie quanitification using the python 2.7 script coming with stringtie. 
+rule count_tables:
+	input:
+		expand("ballgown/{sample}/{sample}.gtf", sample=config["samples"])
+	output:
+		"gene_count_matrix.csv",
+		"transcript_count_matrix.csv"
+	conda:
+		"envs/test.yaml"
+	shell:
+	#	"python .snakemake/conda/0cc9cc6b/bin/prepDE.py {input}"	
+		"python scripts/prepDE.py {input}"	#default read length is 75
+	# is it possible to access path of rule environment by an variable? 
+
+
+
+##### quality control
 
 # modified merge rule from Jonas
 rule fastq_merge:
@@ -107,7 +129,7 @@ rule fastq_merge:
             shell("cat {input} > {output}")
 
 
-#wrapper for fastqc 
+# wrapper for fastqc 
 rule fastqc:
     input:
         "chrX_data/fastq/{sample}.fastq.gz"
@@ -121,46 +143,35 @@ rule fastqc:
         "0.34.0/bio/fastqc"
 
 
-#wrapper for multiqc summarising the fastqc files.
+# wrapper for multiqc summarising the fastqc files.
 rule multiqc_of_fastqc:
-    input:
-        expand("qc/fastqc/{sample}_fastqc.zip", zip, sample=config["samples"])
-    output:
-        "qc/multiqc.html"
-    params:
-        ""  # Optional: extra parameters for multiqc
-    log:
-        "logs/multiqc.log"
-    wrapper:
-        "0.34.0/bio/multiqc"
+	input:
+		expand("qc/fastqc/{sample}_fastqc.zip", zip, sample=config["samples"])
+	output:
+		"qc/multiqc.html"
+	params:
+		""  # Optional: extra parameters for multiqc
+	log:
+		"logs/multiqc.log"
+	conda:
+		"envs/multiqc.yaml"
+	shell: 
+		"multiqc {params} --force -n {output} {input} 2> {log}" 
 	
 
-#wrapper for multiqc summarising the hisat2 alignment.
+# wrapper for multiqc summarising the hisat2 alignment.
 rule multiqc_of_hisat:
-    input:
-        expand("logs/hisat2/{sample}.log", sample=config["samples"])
-    output:
-        "qc/hisat.html"
-    params:
-        ""  # Optional: extra parameters for multiqc
-    log:
-        "logs/multiqc_hisat.log"
-    wrapper:
-        "0.34.0/bio/multiqc"
-
-
-# generation of gene and transcript count matrices from stringtie quanitification using the python 2.7 script coming with stringtie. 
-rule count_tables:
 	input:
-		expand("ballgown/{sample}/{sample}.gtf", sample=config["samples"])
+        	expand("logs/hisat2/{sample}.log", sample=config["samples"])
 	output:
-		"gene_count_matrix.csv",
-		"transcript_count_matrix.csv"
+		"qc/hisat.html"
+	params:
+		""  # Optional: extra parameters for multiqc
+	log:
+		"logs/multiqc_hisat.log"
 	conda:
-		"envs/test.yaml"
-	shell:
-	#	"python .snakemake/conda/0cc9cc6b/bin/prepDE.py {input}"	
-		"python scripts/prepDE.py {input}"	#default read length is 75
-	# is it possible to access path of rule environment by an variable? 
+		"envs/multiqc.yaml"
+	shell: 
+		"multiqc {params} --force -n {output} {input} 2> {log}" 
 
 

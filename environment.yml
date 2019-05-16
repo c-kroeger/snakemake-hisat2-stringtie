@@ -1,3 +1,4 @@
+name: snakemake-hisat2-stringtie
 channels:
   - bioconda
   - conda-forge
