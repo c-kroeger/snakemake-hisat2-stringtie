@@ -22,7 +22,7 @@ rule hisat2:
 	log:                                
 		"logs/hisat2/{sample}.log"
 	params:                             # idx is required, extra is optional
-		idx="chrX_data/indexes/chrX_tran",
+		idx=config["reference"]["index"],
 		extra="--dta --new-summary" # --dta improves de novo assembly with Stringtie, --new-summary required for multiqc of hisat statistics
     	# threads: 1 # although 1 is chosen, still syntax error for this line, why?                        
 	conda:
@@ -48,7 +48,7 @@ rule samtools_sort:
 rule stringtie_initial:
 	input: 
 		sbam="mapped/{sample}.sorted.bam",
-		anno="chrX_data/genes/chrX.gtf"
+		anno=config["reference"]["annotation"]
 	output: 
 		"sample_gtf/{sample}.gtf"
 	log:
@@ -63,7 +63,7 @@ rule stringtie_initial:
 rule stringtie_merge:
 	input: 
 		gtf=expand("sample_gtf/{sample}.gtf", sample=config["samples"]), # or prepare a mergelist.txt of files.
-		anno="chrX_data/genes/chrX.gtf"
+		anno=config["reference"]["annotation"]
 	output:
 		"stringtie_merged.gtf"
 	log:
@@ -78,7 +78,7 @@ rule stringtie_merge:
 rule gffcompare_transcripts:
 	input:
 		st_transcripts="stringtie_merged.gtf",
-		anno="chrX_data/genes/chrX.gtf"
+		anno=config["reference"]["annotation"]
 	output:
 		"GFFcompare.annotated.gtf"
 	shell:
@@ -120,7 +120,7 @@ rule fastq_merge:
     input:
         lambda wildcards: config["samples"][wildcards.sample]
     output:
-       temp("chrX_data/fastq/{sample}.fastq.gz")
+       temp("chrX_data/{sample}.fastq.gz")
        #"chrX_data/fastq/{sample}.fastq.gz"
     run:
         if len(input) == 1:
@@ -132,7 +132,7 @@ rule fastq_merge:
 # wrapper for fastqc 
 rule fastqc:
     input:
-        "chrX_data/fastq/{sample}.fastq.gz"
+        "chrX_data/{sample}.fastq.gz"
     output:
         html="qc/fastqc/{sample}_fastqc.html",
         zip="qc/fastqc/{sample}_fastqc.zip"
@@ -143,7 +143,7 @@ rule fastqc:
         "0.34.0/bio/fastqc"
 
 
-# wrapper for multiqc summarising the fastqc files.
+# multiqc summarising the fastqc files.
 rule multiqc_of_fastqc:
 	input:
 		expand("qc/fastqc/{sample}_fastqc.zip", zip, sample=config["samples"])
@@ -159,7 +159,7 @@ rule multiqc_of_fastqc:
 		"multiqc {params} --force -n {output} {input} 2> {log}" 
 	
 
-# wrapper for multiqc summarising the hisat2 alignment.
+# multiqc summarising the hisat2 alignment.
 rule multiqc_of_hisat:
 	input:
         	expand("logs/hisat2/{sample}.log", sample=config["samples"])

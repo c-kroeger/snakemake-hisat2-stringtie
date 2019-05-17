@@ -8,3 +8,9 @@ samples:
  ERR188234_chrX: 
   - chrX_data/samples/ERR188234_chrX_1.fastq.gz
   - chrX_data/samples/ERR188234_chrX_2.fastq.gz
+  
+reference:
+  # path to HISAT2 index, including shared file name without ending
+  index: "chrX_data/indexes/chrX_tran"
+  # path to annotation gtf file
+  annotation: "chrX_data/genes/chrX.gtf"
