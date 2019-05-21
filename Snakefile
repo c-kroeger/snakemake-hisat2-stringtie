@@ -1,22 +1,47 @@
 # Snakefile for HISAT2 Alignment and StringTie Assembly to performe genome-guided de novo assembly of transcripts.
 # The pipeline additionally includes quality control of sequencing and alignment, class code assignement with gffcompare, and generation of count_tables.  
 
+import pandas as pd
+
+#Load configuration file
 configfile: "config.yaml"
+
+
+# Load sample_table from configuration file
+sample_table = pd.read_csv(config["samples"], delimiter="\t").set_index("sample", drop=False)
+samples = list(sample_table.index)
+
+samples_PE = sample_table[sample_table["fq1"].notna() & sample_table["fq2"].notna()].index
+samples_PE = list(samples_PE)
+
+samples_SE = sample_table[sample_table["fq1"].notna() & sample_table["fq2"].isna()].index
+samples_SE = list(samples_SE)
+
+# input function for fastq files of PE and SE samples
+
+def get_fastq_files(wildcards):
+	return sample_table.loc[(wildcards.sample), ["fq1", "fq2"]].dropna()
+
+#def get_fastq(wildcards):
+ #   if (wildcards.sample in samples_PE) == True:
+  #      return sample_table.loc[(wildcards.sample), ["fq1", "fq2"]]  
+   # return sample_table.loc[(wildcards.sample), ["fq1"]]
+
+
 
 rule all:
 	input: 
-		expand("ballgown/{sample}/{sample}.gtf", sample=config["samples"]),
+		expand("ballgown/{sample}/{sample}.gtf", sample=samples),
 		"GFFcompare.annotated.gtf",
-		expand("qc/fastqc/{sample}_fastqc.html", sample=config["samples"]),
 		"qc/multiqc.html",
-		"qc/hisat.html",
-		"gene_count_matrix.csv"
+		"gene_count_matrix.csv",
+		expand("mapped/{sample}.bam", sample=samples)
 
 
 # Running the HISAT2 wrapper: Aligns reads and pipes output into samtools to convert into BAM file.
 rule hisat2:
 	input:
-		reads = lambda wildcards: config["samples"][wildcards.sample]
+		reads = get_fastq_files
 	output:
 		"mapped/{sample}.bam"
 	log:                                
@@ -62,7 +87,7 @@ rule stringtie_initial:
 # Merge assembled transcripts from all samples. This produces a single, consistent set of transcripts and should overcome low coverage (leading to fragmented transcripts in some samples.
 rule stringtie_merge:
 	input: 
-		gtf=expand("sample_gtf/{sample}.gtf", sample=config["samples"]), # or prepare a mergelist.txt of files.
+		gtf=expand("sample_gtf/{sample}.gtf", sample=samples), # or prepare a mergelist.txt of files.
 		anno=config["reference"]["annotation"]
 	output:
 		"stringtie_merged.gtf"
@@ -100,53 +125,40 @@ rule stringtie_ballgown:
 # generation of gene and transcript count matrices from stringtie quanitification using the python 2.7 script coming with stringtie. 
 rule count_tables:
 	input:
-		expand("ballgown/{sample}/{sample}.gtf", sample=config["samples"])
+		expand("ballgown/{sample}/{sample}.gtf", sample=samples)
 	output:
 		"gene_count_matrix.csv",
 		"transcript_count_matrix.csv"
 	conda:
-		"envs/test.yaml"
+		"envs/count_tables.yaml"
 	shell:
-	#	"python .snakemake/conda/0cc9cc6b/bin/prepDE.py {input}"	
 		"python scripts/prepDE.py {input}"	#default read length is 75
-	# is it possible to access path of rule environment by an variable? 
 
 
 
 ##### quality control
 
-# modified merge rule from Jonas
-rule fastq_merge:
-    input:
-        lambda wildcards: config["samples"][wildcards.sample]
-    output:
-       temp("chrX_data/{sample}.fastq.gz")
-       #"chrX_data/fastq/{sample}.fastq.gz"
-    run:
-        if len(input) == 1:
-            shell("ln -s {input} {output}")
-        else:
-            shell("cat {input} > {output}")
-
-
 # wrapper for fastqc 
 rule fastqc:
     input:
-        "chrX_data/{sample}.fastq.gz"
+        "chrX_data/samples/{sample_read}.fastq.gz"
     output:
-        html="qc/fastqc/{sample}_fastqc.html",
-        zip="qc/fastqc/{sample}_fastqc.zip"
+        html="qc/fastqc/{sample_read}_fastqc.html",
+        zip="qc/fastqc/{sample_read}_fastqc.zip"
     params: ""
     log:
-        "logs/fastqc/{sample}.log"
+        "logs/fastqc/{sample_read}.log"
     wrapper:
         "0.34.0/bio/fastqc"
 
 
-# multiqc summarising the fastqc files.
-rule multiqc_of_fastqc:
+
+# multiqc summarising the fastqc files and hisat alignment statistics
+rule multiqc:
 	input:
-		expand("qc/fastqc/{sample}_fastqc.zip", zip, sample=config["samples"])
+		expand("qc/fastqc/{sample}_1_fastqc.zip", zip, sample=samples),
+		expand("qc/fastqc/{sample}_2_fastqc.zip", zip, sample=samples_PE),
+		expand("logs/hisat2/{sample}.log", sample=samples)
 	output:
 		"qc/multiqc.html"
 	params:
@@ -158,20 +170,5 @@ rule multiqc_of_fastqc:
 	shell: 
 		"multiqc {params} --force -n {output} {input} 2> {log}" 
 	
-
-# multiqc summarising the hisat2 alignment.
-rule multiqc_of_hisat:
-	input:
-        	expand("logs/hisat2/{sample}.log", sample=config["samples"])
-	output:
-		"qc/hisat.html"
-	params:
-		""  # Optional: extra parameters for multiqc
-	log:
-		"logs/multiqc_hisat.log"
-	conda:
-		"envs/multiqc.yaml"
-	shell: 
-		"multiqc {params} --force -n {output} {input} 2> {log}" 
 
 
