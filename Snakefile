@@ -1,33 +1,35 @@
 # Snakefile for HISAT2 Alignment and StringTie Assembly to performe genome-guided de novo assembly of transcripts.
 # The pipeline additionally includes quality control of sequencing and alignment, class code assignement with gffcompare, and generation of count_tables.  
 
+
 import pandas as pd
+
+#### Load configfile and sample table ####
 
 #Load configuration file
 configfile: "config.yaml"
-
 
 # Load sample_table from configuration file
 sample_table = pd.read_csv(config["samples"], delimiter="\t").set_index("sample", drop=False)
 samples = list(sample_table.index)
 
-samples_PE = sample_table[sample_table["fq1"].notna() & sample_table["fq2"].notna()].index
-samples_PE = list(samples_PE)
 
-samples_SE = sample_table[sample_table["fq1"].notna() & sample_table["fq2"].isna()].index
-samples_SE = list(samples_SE)
 
-# input function for fastq files of PE and SE samples
-
-def get_fastq_files(wildcards):
-	return sample_table.loc[(wildcards.sample), ["fq1", "fq2"]].dropna()
+#### Defining input function ####
 
 #def get_fastq(wildcards):
- #   if (wildcards.sample in samples_PE) == True:
-  #      return sample_table.loc[(wildcards.sample), ["fq1", "fq2"]]  
-   # return sample_table.loc[(wildcards.sample), ["fq1"]]
+#    return (sample_table.loc[(wildcards.sample), ["fq1", "fq2"]])
 
 
+def get_fastq_r1(wildcards):
+	return sample_table.loc[(wildcards.sample), "fq1"]
+
+def get_fastq_r2(wildcards):
+	return sample_table.loc[(wildcards.sample), "fq2"]
+
+
+
+#### target rule ####
 
 rule all:
 	input: 
@@ -35,13 +37,43 @@ rule all:
 		"GFFcompare.annotated.gtf",
 		"qc/multiqc.html",
 		"gene_count_matrix.csv",
-		expand("mapped/{sample}.bam", sample=samples)
+		#expand("mapped/{sample}.bam", sample=samples),
+		#expand("mapped_sorted/{sample}.sorted.bam", sample=samples),
+		expand("trimmed/{sample}_1.fastq.gz", sample=samples),
+		expand("trimmed/{sample}_2.fastq.gz", sample=samples)
+
+
+#### snakemake rules ####
+
+# Running Trimmomatic wrapper for PE reads:
+rule trimmomatic_pe:
+	input:
+		r1 = get_fastq_r1,
+		r2 = get_fastq_r2
+	output:
+		r1="trimmed/{sample}_1.fastq.gz",
+		r2="trimmed/{sample}_2.fastq.gz",
+		#reads whithout mate after trimming
+		r1_unpaired="trimmed/{sample}_1.unpaired.fastq.gz",
+		r2_unpaired="trimmed/{sample}_2.unpaired.fastq.gz"
+	log:
+		"logs/trimmomatic/{sample}.log"
+	params:
+		#list of trimmers:
+		trimmer=["ILLUMINACLIP:trimmomatic_adapters/TruSeq3-PE-2.fa:2:30:10","LEADING:3","TRAILING:3","SLIDINGWINDOW:4:15", "MINLEN:20"],
+		#optional parameters
+		extra="",
+		compression_level="-9"
+	threads:
+		2
+	wrapper:
+		"0.35.0/bio/trimmomatic/pe"
 
 
 # Running the HISAT2 wrapper: Aligns reads and pipes output into samtools to convert into BAM file.
 rule hisat2:
 	input:
-		reads = get_fastq_files
+		reads = ["trimmed/{sample}_1.fastq.gz", "trimmed/{sample}_2.fastq.gz"]
 	output:
 		"mapped/{sample}.bam"
 	log:                                
@@ -58,21 +90,21 @@ rule hisat2:
 
 # Running samtool sort wrapper: sorts BAM files
 rule samtools_sort:
-    input:
-        "mapped/{sample}.bam"
-    output:
-        "mapped/{sample}.sorted.bam"
-    params:
-        "-m 4G"
-    threads: 8
-    wrapper:
-        "0.34.0/bio/samtools/sort"
+	input:
+		"mapped/{sample}.bam"
+	output:
+		"mapped_sorted/{sample}.sorted.bam"
+	params:
+		"-m 4G"
+	threads: 8
+	wrapper:
+		"0.34.0/bio/samtools/sort"
 
 
 # Initial assembly of transcripts with StringTie for each sample 
 rule stringtie_initial:
 	input: 
-		sbam="mapped/{sample}.sorted.bam",
+		sbam="mapped_sorted/{sample}.sorted.bam",
 		anno=config["reference"]["annotation"]
 	output: 
 		"sample_gtf/{sample}.gtf"
@@ -92,7 +124,7 @@ rule stringtie_merge:
 	output:
 		"stringtie_merged.gtf"
 	log:
-		"logs/strintie_merge.log"
+		"logs/stringtie_merge.log"
 	threads:
 		""
 	shell:
@@ -114,7 +146,7 @@ rule gffcompare_transcripts:
 rule stringtie_ballgown:
 	input: 
 		anno="stringtie_merged.gtf", 	# important to use set of merged transcripts as annotation file!!
-		sbam="mapped/{sample}.sorted.bam"
+		sbam="mapped_sorted/{sample}.sorted.bam"
 	output:
 		"ballgown/{sample}/{sample}.gtf"
 	threads:
@@ -130,18 +162,19 @@ rule count_tables:
 		"gene_count_matrix.csv",
 		"transcript_count_matrix.csv"
 	conda:
-		"envs/count_tables.yaml"
+		"envs/test.yaml"
 	shell:
-		"python scripts/prepDE.py {input}"	#default read length is 75
+		"python scripts/prepDE.py {input}"	#default read length is 75 
 
 
 
-##### quality control
+#### quality control ####
 
 # wrapper for fastqc 
 rule fastqc:
     input:
-        "chrX_data/samples/{sample_read}.fastq.gz"
+        "trimmed/{sample_read}.fastq.gz"
+#        "sub_fastq/{sample_read}.fastq.gz"
     output:
         html="qc/fastqc/{sample_read}_fastqc.html",
         zip="qc/fastqc/{sample_read}_fastqc.zip"
@@ -157,8 +190,9 @@ rule fastqc:
 rule multiqc:
 	input:
 		expand("qc/fastqc/{sample}_1_fastqc.zip", zip, sample=samples),
-		expand("qc/fastqc/{sample}_2_fastqc.zip", zip, sample=samples_PE),
-		expand("logs/hisat2/{sample}.log", sample=samples)
+		expand("qc/fastqc/{sample}_2_fastqc.zip", zip, sample=samples),
+		expand("logs/hisat2/{sample}.log", sample=samples),
+		expand("logs/trimmomatic/{sample}.log", sample=samples)
 	output:
 		"qc/multiqc.html"
 	params:
