@@ -1,0 +1,7 @@
+name: gffcompare
+channels:
+  - bioconda
+  - conda-forge
+  - default
+dependencies:
+  - gffcompare=0.11.2

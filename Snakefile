@@ -111,6 +111,8 @@ rule stringtie_initial:
 	log:
 		"logs/stringtie/{sample}.log"
 	threads: 8 
+	conda:
+		"envs/stringtie.yaml"
 	shell: 
 		# -l adds a label to assembled transcripts. Is it necessary? 
 		"stringtie -v -p {threads} -G {input.anno} -o {output} {input.sbam} 2> {log}"
@@ -127,6 +129,8 @@ rule stringtie_merge:
 		"logs/stringtie_merge.log"
 	threads:
 		""
+	conda:
+		"envs/stringtie.yaml"
 	shell:
 		"stringtie -v --merge -p {threads} -G {input.anno} -o {output} {input.gtf} 2> {log}"
 
@@ -138,6 +142,8 @@ rule gffcompare_transcripts:
 		anno=config["reference"]["annotation"]
 	output:
 		"GFFcompare.annotated.gtf"
+	conda:
+		"envs/gffcompare.yaml"
 	shell:
 		 "gffcompare -G -r {input.anno} -o GFFcompare {input.st_transcripts}"
 
@@ -151,6 +157,8 @@ rule stringtie_ballgown:
 		"ballgown/{sample}/{sample}.gtf"
 	threads:
 		""
+	conda:
+		"envs/stringtie.yaml"
 	shell: "stringtie -e -B -p {threads} -G {input.anno} -o {output} {input.sbam}"
 
 
@@ -162,7 +170,7 @@ rule count_tables:
 		"gene_count_matrix.csv",
 		"transcript_count_matrix.csv"
 	conda:
-		"envs/test.yaml"
+		"envs/count_tables.yaml"
 	shell:
 		"python scripts/prepDE.py {input}"	#default read length is 75 
 
@@ -174,7 +182,6 @@ rule count_tables:
 rule fastqc:
     input:
         "trimmed/{sample_read}.fastq.gz"
-#        "sub_fastq/{sample_read}.fastq.gz"
     output:
         html="qc/fastqc/{sample_read}_fastqc.html",
         zip="qc/fastqc/{sample_read}_fastqc.zip"
