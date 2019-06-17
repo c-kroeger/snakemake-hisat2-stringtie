@@ -1,7 +1,0 @@
-channels:
-  - bioconda
-  - conda-forge
-  - default
-dependencies:
-  - multiqc==1.2
-  - networkx<2.0
