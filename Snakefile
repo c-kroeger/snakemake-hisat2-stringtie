@@ -1,5 +1,7 @@
-# Snakefile for HISAT2 Alignment and StringTie Assembly to performe genome-guided de novo assembly of transcripts.
-# The pipeline additionally includes quality control of sequencing and alignment, class code assignement with gffcompare, and generation of count_tables.  
+# Author: Charlotte Kroeger
+# Aim: Snakefile for HISAT2 Alignment and StringTie Assembly to performe genome-guided de novo assembly of transcripts. 
+#      The pipeline additionally includes quality control of sequencing and alignment, class code assignement with gffcompare, and generation of count_tables.  
+# Run: snakemake --use-conda --snakefile Snakefile
 
 
 import pandas as pd
@@ -15,11 +17,7 @@ samples = list(sample_table.index)
 
 
 
-#### Defining input function ####
-
-#def get_fastq(wildcards):
-#    return (sample_table.loc[(wildcards.sample), ["fq1", "fq2"]])
-
+#### Defining input functions ####
 
 def get_fastq_r1(wildcards):
 	return sample_table.loc[(wildcards.sample), "fq1"]
@@ -35,15 +33,18 @@ rule all:
 	input: 
 		expand("ballgown/{sample}/{sample}.gtf", sample=samples),
 		"GFFcompare.annotated.gtf",
-		"qc/multiqc.html",
+		"qc/multiqc_raw_reads.html",
+		"qc/multiqc_trimmed_reads.html",
 		"gene_count_matrix.csv",
 		#expand("mapped/{sample}.bam", sample=samples),
 		#expand("mapped_sorted/{sample}.sorted.bam", sample=samples),
-		expand("trimmed/{sample}_1.fastq.gz", sample=samples),
-		expand("trimmed/{sample}_2.fastq.gz", sample=samples)
+		#expand("trimmed/{sample}_1.fastq.gz", sample=samples),
+		#expand("trimmed/{sample}_2.fastq.gz", sample=samples)
 
 
-#### snakemake rules ####
+#### snakemake workflow ####
+
+#### Trimming and Alignment ####
 
 # Running Trimmomatic wrapper for PE reads:
 rule trimmomatic_pe:
@@ -64,13 +65,13 @@ rule trimmomatic_pe:
 		#optional parameters
 		extra="",
 		compression_level="-9"
-	threads:
-		2
+	threads: 2
 	wrapper:
 		"0.35.0/bio/trimmomatic/pe"
 
 
 # Running the HISAT2 wrapper: Aligns reads and pipes output into samtools to convert into BAM file.
+# Note: wrapper was split into environment and script to solve different python requirements of main workflow and wrapper.
 rule hisat2:
 	input:
 		reads = ["trimmed/{sample}_1.fastq.gz", "trimmed/{sample}_2.fastq.gz"]
@@ -78,10 +79,11 @@ rule hisat2:
 		"mapped/{sample}.bam"
 	log:                                
 		"logs/hisat2/{sample}.log"
-	params:                             # idx is required, extra is optional
+	params:
+    	# idx is required, extra is optional
 		idx=config["reference"]["index"],
 		extra="--dta --new-summary" # --dta improves de novo assembly with Stringtie, --new-summary required for multiqc of hisat statistics
-    	# threads: 1 # although 1 is chosen, still syntax error for this line, why?                        
+	threads: 8
 	conda:
 		"envs/hisat2.yaml"
 	script:
@@ -94,12 +96,16 @@ rule samtools_sort:
 		"mapped/{sample}.bam"
 	output:
 		"mapped_sorted/{sample}.sorted.bam"
-	params:
-		"-m 4G"
+	#params:
+	#	"-m 4G"
 	threads: 8
 	wrapper:
 		"0.34.0/bio/samtools/sort"
-
+		
+		
+		
+		
+#### Assembly and Quantificaion ####
 
 # Initial assembly of transcripts with StringTie for each sample 
 rule stringtie_initial:
@@ -127,8 +133,7 @@ rule stringtie_merge:
 		"stringtie_merged.gtf"
 	log:
 		"logs/stringtie_merge.log"
-	threads:
-		""
+	threads: 8
 	conda:
 		"envs/stringtie.yaml"
 	shell:
@@ -142,6 +147,7 @@ rule gffcompare_transcripts:
 		anno=config["reference"]["annotation"]
 	output:
 		"GFFcompare.annotated.gtf"
+	threads: 2
 	conda:
 		"envs/gffcompare.yaml"
 	shell:
@@ -155,8 +161,7 @@ rule stringtie_ballgown:
 		sbam="mapped_sorted/{sample}.sorted.bam"
 	output:
 		"ballgown/{sample}/{sample}.gtf"
-	threads:
-		""
+	threads: 8
 	conda:
 		"envs/stringtie.yaml"
 	shell: "stringtie -e -B -p {threads} -G {input.anno} -o {output} {input.sbam}"
@@ -176,40 +181,80 @@ rule count_tables:
 
 
 
-#### quality control ####
 
-# wrapper for fastqc 
-rule fastqc:
+#### Quality control of raw reads ####
+
+# fastqc of read 1
+rule fastqc_r1:
     input:
-        "trimmed/{sample_read}.fastq.gz"
+        get_fastq_r1
     output:
-        html="qc/fastqc/{sample_read}_fastqc.html",
-        zip="qc/fastqc/{sample_read}_fastqc.zip"
+        html="qc/fastqc_raw/{sample}_1_fastqc.html",
+        zip="qc/fastqc_raw/{sample}_1_fastqc.zip"
     params: ""
     log:
-        "logs/fastqc/{sample_read}.log"
+        "logs/fastqc_raw/{sample}_1.log"
     wrapper:
         "0.34.0/bio/fastqc"
 
 
+# fastqc of read 2 
+rule fastqc_r2:
+    input:
+        get_fastq_r2
+    output:
+        html="qc/fastqc_raw/{sample}_2_fastqc.html",
+        zip="qc/fastqc_raw/{sample}_2_fastqc.zip"
+    params: ""
+    log:
+        "logs/fastqc_raw/{sample}_2.log"
+    wrapper:
+        "0.34.0/bio/fastqc"
 
-# multiqc summarising the fastqc files and hisat alignment statistics
+
+# multiqc summarising the fastqc files of raw reads
 rule multiqc:
 	input:
-		expand("qc/fastqc/{sample}_1_fastqc.zip", zip, sample=samples),
-		expand("qc/fastqc/{sample}_2_fastqc.zip", zip, sample=samples),
+		expand("qc/fastqc_raw/{sample}_1_fastqc.zip", zip, sample=samples),
+		expand("qc/fastqc_raw/{sample}_2_fastqc.zip", zip, sample=samples),
+	output:
+		"qc/multiqc_raw_reads.html"
+	log:
+		"logs/multiqc_raw_reads.log"
+	wrapper:
+		"0.35.1/bio/multiqc"
+
+
+
+
+#### Quality control of trimmed reads ####
+
+# fastqc of trimmed reads
+rule fastqc_trimmed:
+    input:
+        "trimmed/{sample_read}.fastq.gz"
+    output:
+        html="qc/fastqc_trimmed/{sample_read}_fastqc.html",
+        zip="qc/fastqc_trimmed/{sample_read}_fastqc.zip"
+    params: ""
+    log:
+        "logs/fastqc_trimmed/{sample_read}.log"
+    wrapper:
+        "0.34.0/bio/fastqc"
+
+
+# multiqc summarising the fastqc files after trimming and hisat alignment statistics
+rule multiqc_trimmed:
+	input:
+		expand("qc/fastqc_trimmed/{sample}_1_fastqc.zip", zip, sample=samples),
+		expand("qc/fastqc_trimmed/{sample}_2_fastqc.zip", zip, sample=samples),
 		expand("logs/hisat2/{sample}.log", sample=samples),
 		expand("logs/trimmomatic/{sample}.log", sample=samples)
 	output:
-		"qc/multiqc.html"
+		"qc/multiqc_trimmed_reads.html"
 	params:
-		""  # Optional: extra parameters for multiqc
+		"--config config.yaml"  # Optional: extra parameters for multiqc
 	log:
-		"logs/multiqc.log"
-	conda:
-		"envs/multiqc.yaml"
-	shell: 
-		"multiqc {params} --force -n {output} {input} 2> {log}" 
-	
-
-
+		"logs/multiqc_trimmed_reads.log"
+	wrapper:
+		"0.35.1/bio/multiqc"
