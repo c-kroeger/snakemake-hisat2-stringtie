@@ -5,5 +5,5 @@ channels:
   - default
 dependencies:
   - hisat2==2.1.0
-  - samtools==1.5
+  - samtools==1.9
   - python==3.6.7

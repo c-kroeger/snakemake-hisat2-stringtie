@@ -1,0 +1,11 @@
+samples: samples.txt
+  
+reference:
+  # path to HISAT2 index, including shared file name without ending
+  index: "path/to/hisat_index/file"
+  # path to annotation gtf file
+  annotation: "path/to/annotation.gtf"
+  
+trimmomatic:
+  # path to adapter file:
+  adapters: "trimmomatic_adapters/TruSeq2and3-PE-2.fa"  

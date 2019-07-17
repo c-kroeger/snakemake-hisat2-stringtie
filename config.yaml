@@ -1,7 +1,0 @@
-samples: samples.txt
-  
-reference:
-  # path to HISAT2 index, including shared file name without ending
-  index: "chrX_data/indexes/chrX_tran"
-  # path to annotation gtf file
-  annotation: "chrX_data/genes/chrX.gtf"
