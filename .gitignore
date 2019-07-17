@@ -1,3 +1,5 @@
 .snakemake/
 test_data/
 jupyter_notebook/
+old_snakefiles/
+index_generation_hisat2/
